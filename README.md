@@ -58,13 +58,13 @@ margin: 1px 0;}
 </style>
 
 <body>
-<span class="command"><u>/start</u> - Initiates the bot and presents the main menu.</span>
-<span class="command"><u>/upload</u> - Prompts the user to upload a file.</span>
-<span class="command"><u>/search</u> - Instructs the user on how to search for a specific file.</span>
-<span class="command"><u>/list</u> - Guides the user to list files.</span>
-<span class="command"><u>/delete</u> - Instructs on file deletion.</span>
-<span class="command"><u>/rename</u> - Provides instructions for renaming files.</span>
-<span class="command"><u>/create</u> - Guides the user to create a folder.</span>
-<span class="command"><u>/deleteallfiles</u> - Prompts for confirmation to delete all files.</span>
-<span class="command"><u>/deleteallfolders</u> - Prompts for confirmation to delete all folders.</span>
+<span class="command"><u>/start</u> - Initiates the bot and presents the main menu.</span><br>
+<span class="command"><u>/upload</u> - Prompts the user to upload a file.</span><br>
+<span class="command"><u>/search</u> - Instructs the user on how to search for a specific file.</span><br>
+<span class="command"><u>/list</u> - Guides the user to list files.</span><br>
+<span class="command"><u>/delete</u> - Instructs on file deletion.</span><br>
+<span class="command"><u>/rename</u> - Provides instructions for renaming files.</span><br>
+<span class="command"><u>/create</u> - Guides the user to create a folder.</span><br>
+<span class="command"><u>/deleteallfiles</u> - Prompts for confirmation to delete all files.</span><br>
+<span class="command"><u>/deleteallfolders</u> - Prompts for confirmation to delete all folders.</span><br>
 </body>
