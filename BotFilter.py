@@ -1,244 +1,277 @@
+import asyncio
 import datetime
-import io
-import os
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
+import math
+import os
+from pathlib import Path
 
-API_TOKEN = 'your API token'  # Replace 'YOUR_API_TOKEN' with your actual bot token
-ALLOWED_EXTENSIONS = ['.docx', '.jpg', '.jpeg', '.png', '.gif']  # The allowed file extensions
+from aiogram import Bot, Dispatcher
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.markdown import hbold
+from aiogram.enums import ParseMode
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.client.default import DefaultBotProperties
 
+# Bot configuration
+API_TOKEN = 'YOUR_API_TOKEN'
+ALLOWED_EXTENSIONS = {'.docx', '.jpg', '.jpeg', '.png', '.gif'}
+SAVE_DIR = 'files'
+
+# Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Initialize bot and dispatcher
+bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
 
-@dp.message_handler(commands=['searchfiles'])
-async def send_all_files(message: types.Message):
-    try:
-        files_list = os.listdir("files")
-        if files_list:
-            files_string = "\n".join(files_list)  # Join the list of files with a line break
-            await message.answer("List of files in the directory:\n" + files_string)  # Directly send the list of files
-        else:
-            await message.answer("The directory does not contain any files")
-    except Exception as e:
-        await message.answer(f"An error occurred: {e}")
 
-async def search_and_send_specific_file(message: Message, file_name: str):
-    try:
-        file_path = os.path.join("files", file_name)
-        if os.path.isfile(file_path):
-            with open(file_path, 'rb') as file:
-                await bot.send_document(message.chat.id, file,
-                                        caption=file_name)  # Send the document with its name as caption
-        else:
-            await message.answer(f"The file {file_name} was not found")
-    except Exception as e:
-        await message.answer(f"An error occurred: {e}")
+# Helper functions
+def get_human_readable_size(size_bytes: int) -> str:
+    if size_bytes == 0:
+        return "0 B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_name[i]}"
 
-@dp.message_handler(commands='sendfile')
-async def send_specific_file_command(message: types.Message):
-    try:
-        # Get the file name from the user's command
-        file_name = message.get_args()
-        if file_name:
-            await search_and_send_specific_file(message, file_name)
-        else:
-            await message.answer("Please specify the file name in the format:")
-            await message.answer("/sendfile file_name")
 
-    except Exception as e:
-        await message.answer(f"An error occurred: ```{e}```")
+def register_file(file_name: str, file_size: int) -> None:
+    file_format = Path(file_name).suffix[1:]  # Get extension without dot
+    download_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_message = f"File registered - Name: {file_name}, Format: {file_format}, Size: {file_size} bytes, Download Date: {download_date}"
+    logger.info(log_message)
 
-async def save_file(file_bytes, file_name):
-    save_dir = 'files'  # Directory for saving files
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)  # Check and create directory if it does not exist
-    file_path = os.path.join(save_dir, file_name)
-    with open(file_path, 'wb') as new_file:
-        new_file.write(file_bytes.getbuffer())  # Get byte data from BytesIO object
+
+async def save_file(file_bytes: bytes, file_name: str) -> str:
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    file_path = os.path.join(SAVE_DIR, file_name)
+    with open(file_path, 'wb') as f:
+        f.write(file_bytes)
     return file_path
 
-# Example command to view files
-@dp.message_handler(commands=['listfiles'])
-async def list_files(message: types.Message):
+
+# Keyboard setup
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        keyboard=[
+            [KeyboardButton(text="/upload"), KeyboardButton(text="/search")],
+            [KeyboardButton(text="/list"), KeyboardButton(text="/delete")],
+            [KeyboardButton(text="/rename"), KeyboardButton(text="/create")],
+            [KeyboardButton(text="/deleteallfiles"), KeyboardButton(text="/deleteallfolders")]
+        ]
+    )
+
+
+# Handlers
+@dp.message(CommandStart())
+async def start_command(message: Message):
+    await message.answer(
+        f"Hello, {hbold(message.from_user.full_name)}!\nWelcome to the file bot! Please choose an action:",
+        reply_markup=get_main_keyboard()
+    )
+
+
+@dp.message(Command("upload"))
+async def upload_command(message: Message):
+    await message.answer("Please upload a .docx or image file (.jpg, .jpeg, .png, .gif).")
+
+
+@dp.message(Command("search"))
+async def search_command(message: Message):
+    await message.answer("Please specify the file name using:\n/sendfile <file_name>")
+
+
+@dp.message(Command("list"))
+async def list_command(message: Message):
+    await message.answer("To see a list of files, use:\n/searchfiles")
+
+
+@dp.message(Command("delete"))
+async def delete_command(message: Message):
+    await message.answer("Please specify the file name using:\n/deletefile <file_name>")
+
+
+@dp.message(Command("rename"))
+async def rename_command(message: Message):
+    await message.answer(
+        "Please specify the old and new file names using:\n/renamefile <old_file_name> <new_file_name>")
+
+
+@dp.message(Command("create"))
+async def create_command(message: Message):
+    await message.answer("Please specify the folder name using:\n/createfolder <folder_name>")
+
+
+@dp.message(Command("searchfiles"))
+async def list_files_command(message: Message):
     try:
-        files_list = os.listdir("files")
+        files_list = os.listdir(SAVE_DIR)
         if files_list:
             files_string = "\n".join(files_list)
             await message.answer(f"List of files in the directory:\n{files_string}")
         else:
-            await message.answer("The directory does not contain any files")
+            await message.answer("The directory does not contain any files.")
     except Exception as e:
+        logger.error(f"Error listing files: {e}")
         await message.answer(f"An error occurred: {e}")
 
-# Example of deleting a file
-@dp.message_handler(commands=['deletefile'])
-async def delete_file(message: types.Message):
+
+@dp.message(Command("sendfile"))
+async def send_file_command(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Please specify the file name using:\n/sendfile <file_name>")
+        return
+    file_name = args[1]
     try:
-        file_name = message.get_args()
-        file_path = os.path.join("files", file_name)
+        file_path = os.path.join(SAVE_DIR, file_name)
+        if os.path.isfile(file_path):
+            await message.answer_document(FSInputFile(file_path, filename=file_name))
+        else:
+            await message.answer(f"The file {file_name} was not found.")
+    except Exception as e:
+        logger.error(f"Error sending file {file_name}: {e}")
+        await message.answer(f"An error occurred: {e}")
+
+
+@dp.message(Command("deletefile"))
+async def delete_file_command(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Please specify the file name using:\n/deletefile <file_name>")
+        return
+    file_name = args[1]
+    try:
+        file_path = os.path.join(SAVE_DIR, file_name)
         if os.path.isfile(file_path):
             os.remove(file_path)
-            await message.answer(f"The file {file_name} has been deleted")
+            await message.answer(f"The file {file_name} has been deleted.")
         else:
-            await message.answer(f"The file {file_name} was not found")
+            await message.answer(f"The file {file_name} was not found.")
     except Exception as e:
+        logger.error(f"Error deleting file {file_name}: {e}")
         await message.answer(f"An error occurred: {e}")
 
-# Example of renaming a file
-@dp.message_handler(commands=['renamefile'])
-async def rename_file(message: types.Message):
+
+@dp.message(Command("renamefile"))
+async def rename_file_command(message: Message):
+    args = message.text.split(maxsplit=2)
+    if len(args) < 3:
+        await message.answer(
+            "Please specify the old and new file names using:\n/renamefile <old_file_name> <new_file_name>")
+        return
+    old_file_name, new_file_name = args[1], args[2]
     try:
-        args = message.get_args().split()
-        if len(args) == 2:
-            old_file_name = args[0]
-            new_file_name = args[1]
-            os.rename(os.path.join("files", old_file_name), os.path.join("files", new_file_name))
-            await message.answer(f"The file {old_file_name} has been renamed to {new_file_name}")
+        old_path = os.path.join(SAVE_DIR, old_file_name)
+        new_path = os.path.join(SAVE_DIR, new_file_name)
+        if os.path.exists(old_path):
+            os.rename(old_path, new_path)
+            await message.answer(f"The file {old_file_name} has been renamed to {new_file_name}.")
         else:
-            await message.answer("Please specify the old file name and the new file name")
+            await message.answer(f"The file {old_file_name} does not exist.")
     except Exception as e:
+        logger.error(f"Error renaming file {old_file_name} to {new_file_name}: {e}")
         await message.answer(f"An error occurred: {e}")
 
-@dp.message_handler(commands=['deleteallfiles'])
-async def delete_all_files_button(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup()
-    delete_all_button = types.InlineKeyboardButton(text="Delete All Files", callback_data="confirm_delete_all")
-    keyboard.add(delete_all_button)
+
+@dp.message(Command("deleteallfiles"))
+async def delete_all_files_command(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Delete All Files", callback_data="confirm_delete_all")]
+    ])
     await message.answer("Are you sure you want to delete all files in the directory?", reply_markup=keyboard)
 
-@dp.callback_query_handler(lambda c: c.data == 'confirm_delete_all')
-async def delete_all_files(callback_query: types.CallbackQuery):
+
+@dp.callback_query(lambda c: c.data == "confirm_delete_all")
+async def confirm_delete_all_files(callback: CallbackQuery):
     try:
-        files_list = os.listdir("files")
+        files_list = os.listdir(SAVE_DIR)
         for file in files_list:
-            file_path = os.path.join("files", file)
+            file_path = os.path.join(SAVE_DIR, file)
             if os.path.isfile(file_path):
                 os.remove(file_path)
-        await bot.answer_callback_query(callback_query.id, text="All files have been deleted")
+        await callback.message.answer("All files have been deleted.")
+        await callback.answer("All files have been deleted.")
     except Exception as e:
-        await bot.answer_callback_query(callback_query.id, text=f"An error occurred: {e}")
+        logger.error(f"Error deleting all files: {e}")
+        await callback.message.answer(f"An error occurred: {e}")
+        await callback.answer(f"An error occurred: {e}")
 
-# Example of creating a subdirectory
-@dp.message_handler(commands=['createfolder'])
-async def create_folder(message: types.Message):
+
+@dp.message(Command("createfolder"))
+async def create_folder_command(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Please specify the folder name using:\n/createfolder <folder_name>")
+        return
+    folder_name = args[1]
     try:
-        folder_name = message.get_args()
-        folder_path = os.path.join("files", folder_name)
-        os.makedirs(folder_path)
-        await message.answer(f"The folder {folder_name} has been created")
+        folder_path = os.path.join(SAVE_DIR, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+        await message.answer(f"The folder {folder_name} has been created.")
     except Exception as e:
+        logger.error(f"Error creating folder {folder_name}: {e}")
         await message.answer(f"An error occurred: {e}")
 
-# Example button for deleting all folders
-@dp.message_handler(commands=['deleteallfolders'])
-async def delete_all_folders(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup()
-    callback_button = types.InlineKeyboardButton(text="Delete all folders", callback_data="delete_all_folders")
-    keyboard.add(callback_button)
+
+@dp.message(Command("deleteallfolders"))
+async def delete_all_folders_command(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Delete All Folders", callback_data="delete_all_folders")]
+    ])
     await message.answer("Are you sure you want to delete all folders?", reply_markup=keyboard)
 
-# Function to delete all folders
-@dp.callback_query_handler(text="delete_all_folders")
-async def process_delete_all_folders(callback_query: types.CallbackQuery):
+
+@dp.callback_query(lambda c: c.data == "delete_all_folders")
+async def confirm_delete_all_folders(callback: CallbackQuery):
     try:
-        folder_path = "files"
-        for root, dirs, files in os.walk(folder_path, topdown=False):
+        for root, dirs, _ in os.walk(SAVE_DIR, topdown=False):
             for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        await callback_query.message.answer("All folders have been deleted")
+                dir_path = os.path.join(root, name)
+                try:
+                    os.rmdir(dir_path)
+                    logger.info(f"Deleted folder: {dir_path}")
+                except OSError as e:
+                    logger.error(f"Error deleting folder {dir_path}: {e}")
+        await callback.message.answer("All folders have been deleted.")
+        await callback.answer("All folders have been deleted.")
     except Exception as e:
-        await callback_query.message.answer(f"An error occurred: {e}")
+        logger.error(f"Error deleting all folders: {e}")
+        await callback.message.answer(f"An error occurred: {e}")
+        await callback.answer(f"An error occurred: {e}")
 
-async def handle_file_upload(message: types.Message):
-    if message.document.file_name.lower().endswith(('.docx', '.jpg', '.jpeg', '.png', '.gif')):
-        file_id = message.document.file_id
-        file_data = await bot.get_file(file_id)
-        file_bytes = await bot.download_file(file_data.file_path)
-        file_bytes_io = io.BytesIO(file_bytes)
-        file_path = await save_file(file_bytes_io,
-                                    file_data.file_path.split('/')[-1])  # Use file name instead of full path
-        file_size = os.path.getsize(file_path)
-        await register_file(file_data.file_path.split('/')[-1],
-                            file_size)  # Register the file using the file name, not the full path
 
-async def register_file(file_name, file_size):
-    file_format = file_name.split('.')[-1]
-    download_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_message = f"File registered - Name: {file_name}, Format: {file_format}, Size: {file_size} bytes, Download Date: {download_date}"
-    logging.info(log_message)
+@dp.message(lambda message: message.document)
+async def handle_document(message: Message):
+    try:
+        document = message.document
+        if Path(document.file_name).suffix.lower() in ALLOWED_EXTENSIONS:
+            file_info = await bot.get_file(document.file_id)
+            file_bytes = await bot.download(file_info.file_path)
+            file_name = document.file_name
+            file_path = await save_file(file_bytes.read(), file_name)
+            file_size = os.path.getsize(file_path)
 
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    upload_button = types.KeyboardButton("/upload")
-    search_button = types.KeyboardButton("/search")
-    list_button = types.KeyboardButton("/list")
-    delete_button = types.KeyboardButton("/delete")
-    rename_button = types.KeyboardButton("/rename")
-    create_button = types.KeyboardButton("/create")
-    DeleteAllFiles_button = types.KeyboardButton("/deleteallfiles")
-    DeleteAllFolders_button = types.KeyboardButton("/deleteallfolders")
-    keyboard.add(upload_button, search_button)
-    keyboard.add(list_button, delete_button)
-    keyboard.add(rename_button, create_button)
-    keyboard.add(DeleteAllFiles_button, DeleteAllFolders_button)
-    await message.answer("Welcome to the file bot! Please choose an action:", reply_markup=keyboard)
-
-@dp.message_handler(commands=['upload'])
-async def upload_file(message: types.Message):
-    await message.answer("Please upload the .docx or image file you want to share.")
-
-@dp.message_handler(commands=['search'])
-async def search_file(message: types.Message):
-    await message.answer("Please specify the file name in the format:")
-    await message.answer("/sendfile file_name")
-
-@dp.message_handler(commands=['list'])
-async def list_files(message: types.Message):
-    # Add a function to retrieve the list of files
-    await message.answer("To see a list of files, enter:")
-    await message.answer("/searchfiles")
-
-@dp.message_handler(commands=['delete'])
-async def delete_file(message: types.Message):
-    await message.answer("Please specify the file name in the format:")
-    await message.answer("/deletefile file_name")
-
-@dp.message_handler(commands=['rename'])
-async def rename_file(message: types.Message):
-    await message.answer("Please specify the old file name and the new file name in the format:")
-    await message.answer("/renamefile old_file_name new_file_name")
-
-@dp.message_handler(commands=['create'])
-async def create_folder(message: types.Message):
-    await message.answer("Please specify the folder name in the format:")
-    await message.answer("/createfolder folder_name")
-
-@dp.message_handler(content_types=types.ContentTypes.DOCUMENT)
-async def handle_file_upload(message: types.Message):
-    if message.document.file_name.lower().endswith(('.docx', '.jpg', '.jpeg', '.png', '.gif')):
-        file_id = message.document.file_id
-        file_data = await bot.get_file(file_id)
-        downloaded_file = await bot.download_file(file_data.file_path)
-        if downloaded_file is not None and file_data.file_path is not None:
-            file_path = await save_file(downloaded_file, file_data.file_path.split('/')[-1])  # Saving file using file name, not full path
-            if file_path is not None:
-                file_size = os.path.getsize(file_path)
-                await register_file(file_data.file_path.split('/')[-1], file_size)  # Registering a file using the file name rather than the full path
-                await message.answer(f"File uploaded successfully.")
-                await message.answer(f"File size: {file_size} bytes.")
-                await message.answer(f"File name: {file_data.file_path.split('/')[-1]}")
-                await message.answer(f"After uploading the file to the directory, it is advisable to rename the file by entering /rename")
-            else:
-                await message.answer("Error saving the file.")
+            register_file(file_name, file_size)
+            await message.answer(
+                f"File '{file_name}' uploaded successfully.\nSize: {get_human_readable_size(file_size)}.\n"
+                "Consider renaming the file using /rename."
+            )
         else:
-            await message.answer("Error downloading the file.")
-    else:
-        await message.answer("This file format is not supported for upload, select another file.")
+            await message.answer("Unsupported file format. Please upload a .docx, .jpg, .jpeg, .png, or .gif file.")
+    except Exception as e:
+        logger.error(f"Error handling document upload: {e}")
+        await message.answer(f"An error occurred: {e}")
+
+
+# Main function
+async def main():
+    await dp.start_polling(bot)
+
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
