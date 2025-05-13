@@ -14,7 +14,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.client.default import DefaultBotProperties
 
 # Bot configuration
-API_TOKEN = 'YOUR_API_TOKEN'
+API_TOKEN = 'YOUR_TOKEN_API'
 ALLOWED_EXTENSIONS = {'.docx', '.jpg', '.jpeg', '.png', '.gif'}
 SAVE_DIR = 'files'
 
